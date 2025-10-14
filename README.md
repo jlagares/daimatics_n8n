@@ -269,6 +269,377 @@ pip install scrapy
 scrapy version
 ```
 
+## Debian/Ubuntu Deployment
+
+### System Requirements
+
+```bash
+# Update system packages
+sudo apt update && sudo apt upgrade -y
+
+# Install Python and essential tools
+sudo apt install -y python3 python3-pip python3-venv python3-dev
+sudo apt install -y build-essential libxml2-dev libxslt1-dev libffi-dev libssl-dev
+sudo apt install -y curl git nginx supervisor
+
+# Install optional tools
+sudo apt install -y htop tree nano
+```
+
+### Deployment Steps
+
+#### 1. Create Deployment User
+
+```bash
+# Create a dedicated user for the application
+sudo adduser scraper
+sudo usermod -aG sudo scraper
+
+# Switch to the scraper user
+sudo su - scraper
+```
+
+#### 2. Clone and Setup Project
+
+```bash
+# Clone the repository
+git clone https://github.com/jlagares/daimatics_n8n.git
+cd daimatics_n8n
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# Verify installation
+scrapy version
+```
+
+#### 3. Test the Application
+
+```bash
+# Test Scrapy spider
+cd email_scraper
+scrapy crawl email_spider -a start_urls=https://httpbin.org/html -o test.json
+cat test.json
+
+# Test FastAPI server
+cd ../src
+python scraper_api.py &
+
+# Test API endpoints
+curl http://localhost:8000/health
+curl -X POST "http://localhost:8000/scrape" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://httpbin.org/html"}'
+
+# Stop the test server
+pkill -f "python scraper_api.py"
+```
+
+#### 4. Production Configuration with Supervisor
+
+Create a supervisor configuration:
+
+```bash
+sudo nano /etc/supervisor/conf.d/email-scraper-api.conf
+```
+
+Add the following configuration:
+
+```ini
+[program:email-scraper-api]
+command=/home/scraper/daimatics_n8n/venv/bin/python /home/scraper/daimatics_n8n/src/scraper_api.py
+directory=/home/scraper/daimatics_n8n/src
+user=scraper
+autostart=true
+autorestart=true
+redirect_stderr=true
+stdout_logfile=/var/log/email-scraper-api.log
+stdout_logfile_maxbytes=10MB
+stdout_logfile_backups=5
+environment=PATH="/home/scraper/daimatics_n8n/venv/bin"
+```
+
+Enable and start the service:
+
+```bash
+# Update supervisor
+sudo supervisorctl reread
+sudo supervisorctl update
+
+# Start the service
+sudo supervisorctl start email-scraper-api
+
+# Check status
+sudo supervisorctl status email-scraper-api
+
+# View logs
+sudo tail -f /var/log/email-scraper-api.log
+```
+
+#### 5. Nginx Reverse Proxy (Optional)
+
+Create Nginx configuration:
+
+```bash
+sudo nano /etc/nginx/sites-available/email-scraper-api
+```
+
+Add the following configuration:
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;  # Replace with your domain
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 300;
+        proxy_send_timeout 300;
+    }
+}
+```
+
+Enable the site:
+
+```bash
+# Enable the site
+sudo ln -s /etc/nginx/sites-available/email-scraper-api /etc/nginx/sites-enabled/
+
+# Test nginx configuration
+sudo nginx -t
+
+# Restart nginx
+sudo systemctl restart nginx
+
+# Enable nginx to start on boot
+sudo systemctl enable nginx
+```
+
+#### 6. Firewall Configuration
+
+```bash
+# Enable UFW firewall
+sudo ufw enable
+
+# Allow SSH
+sudo ufw allow ssh
+
+# Allow HTTP and HTTPS
+sudo ufw allow 80
+sudo ufw allow 443
+
+# Check status
+sudo ufw status
+```
+
+#### 7. SSL Certificate with Let's Encrypt (Optional)
+
+```bash
+# Install certbot
+sudo apt install -y certbot python3-certbot-nginx
+
+# Get SSL certificate
+sudo certbot --nginx -d your-domain.com
+
+# Test auto-renewal
+sudo certbot renew --dry-run
+```
+
+### Service Management Commands
+
+```bash
+# Start/Stop/Restart the service
+sudo supervisorctl start email-scraper-api
+sudo supervisorctl stop email-scraper-api
+sudo supervisorctl restart email-scraper-api
+
+# Check service status
+sudo supervisorctl status email-scraper-api
+
+# View real-time logs
+sudo tail -f /var/log/email-scraper-api.log
+
+# Check Nginx status
+sudo systemctl status nginx
+
+# Restart Nginx
+sudo systemctl restart nginx
+```
+
+### Environment-Specific Configuration
+
+Create a production configuration file:
+
+```bash
+nano ~/daimatics_n8n/src/config.py
+```
+
+```python
+import os
+
+# Production settings
+DEBUG = False
+HOST = "0.0.0.0"
+PORT = 8000
+WORKERS = 4
+
+# Scrapy settings for production
+SCRAPY_SETTINGS = {
+    "CONCURRENT_REQUESTS": 16,
+    "CONCURRENT_REQUESTS_PER_DOMAIN": 4,
+    "DOWNLOAD_DELAY": 0.5,
+    "RANDOMIZE_DOWNLOAD_DELAY": 0.5,
+    "AUTOTHROTTLE_ENABLED": True,
+    "AUTOTHROTTLE_START_DELAY": 0.5,
+    "AUTOTHROTTLE_MAX_DELAY": 3.0,
+    "ROBOTSTXT_OBEY": True,
+    "USER_AGENT": "EmailScraper (+http://your-domain.com)",
+}
+```
+
+### Monitoring and Maintenance
+
+#### Log Rotation
+
+```bash
+# Configure log rotation
+sudo nano /etc/logrotate.d/email-scraper-api
+```
+
+```
+/var/log/email-scraper-api.log {
+    daily
+    missingok
+    rotate 30
+    compress
+    notifempty
+    copytruncate
+}
+```
+
+#### System Resource Monitoring
+
+```bash
+# Monitor system resources
+htop
+
+# Check disk usage
+df -h
+
+# Check memory usage
+free -h
+
+# Monitor API process
+ps aux | grep scraper_api
+
+# Check open files/connections
+sudo netstat -tlnp | grep :8000
+```
+
+#### Health Check Script
+
+Create a health check script:
+
+```bash
+nano ~/health_check.sh
+```
+
+```bash
+#!/bin/bash
+
+API_URL="http://localhost:8000/health"
+RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" $API_URL)
+
+if [ $RESPONSE -eq 200 ]; then
+    echo "$(date): API is healthy"
+else
+    echo "$(date): API is down (HTTP $RESPONSE)"
+    sudo supervisorctl restart email-scraper-api
+fi
+```
+
+```bash
+chmod +x ~/health_check.sh
+
+# Add to crontab for automatic checks
+crontab -e
+# Add: */5 * * * * /home/scraper/health_check.sh >> /home/scraper/health_check.log 2>&1
+```
+
+### Troubleshooting Debian Deployment
+
+#### Common Issues
+
+**Permission denied errors:**
+```bash
+# Fix ownership
+sudo chown -R scraper:scraper /home/scraper/daimatics_n8n
+
+# Fix permissions
+chmod +x /home/scraper/daimatics_n8n/src/scraper_api.py
+```
+
+**Virtual environment not found:**
+```bash
+# Verify virtual environment
+ls -la /home/scraper/daimatics_n8n/venv/bin/
+
+# Recreate if necessary
+cd /home/scraper/daimatics_n8n
+rm -rf venv
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Service won't start:**
+```bash
+# Check supervisor logs
+sudo supervisorctl tail email-scraper-api
+
+# Check system logs
+sudo journalctl -u supervisor
+
+# Manually test the command
+cd /home/scraper/daimatics_n8n/src
+/home/scraper/daimatics_n8n/venv/bin/python scraper_api.py
+```
+
+**Port already in use:**
+```bash
+# Find process using port 8000
+sudo netstat -tlnp | grep :8000
+sudo lsof -i :8000
+
+# Kill process if necessary
+sudo kill -9 <PID>
+```
+
+### Testing on Debian
+
+```bash
+# Test from local machine
+curl -X GET "http://your-server-ip:8000/health"
+
+# Test with domain (if configured)
+curl -X GET "http://your-domain.com/health"
+
+# Test scraping
+curl -X POST "http://your-server-ip:8000/scrape" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://httpbin.org/html"}'
+```
+
 ## Development
 
 ### Running Tests
