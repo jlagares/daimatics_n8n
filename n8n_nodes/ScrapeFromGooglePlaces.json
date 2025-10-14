@@ -1,0 +1,268 @@
+{
+  "name": "ScrapeFromGooglePlaces",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -576,
+        -144
+      ],
+      "id": "ab7678c7-7f5b-4c4c-abf5-a4c58a6f2dc7",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1WGpESINrpZU0JRFGC1ymI3K-zsuqV77kFLB3yI-Xm5Y",
+          "mode": "list",
+          "cachedResultName": "GooglePlacesSearch",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1WGpESINrpZU0JRFGC1ymI3K-zsuqV77kFLB3yI-Xm5Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Hoja 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1WGpESINrpZU0JRFGC1ymI3K-zsuqV77kFLB3yI-Xm5Y/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -384,
+        -144
+      ],
+      "id": "ef17092d-e45b-40ab-a8fb-51858a6840c8",
+      "name": "Extract Places Info",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "txGcD2nemlcYYigg",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst urls = items\n  .map(i => i.json.WebsiteUri)\n  .filter(u => typeof u === 'string' && u.trim() !== '')\n  .map(u => u.trim());\n\nconst uniqueUrls = [...new Set(urls)];\n\nreturn uniqueUrls.map(u => ({ json: { url: u } }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -192,
+        -144
+      ],
+      "id": "753dbedb-d544-4994-8088-f27b3a7d1962",
+      "name": "Create individual Queries to scraper"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://193.70.40.128:8000/scrape",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "=url",
+              "value": "= {{ $json.url }}"
+            },
+            {
+              "name": "max_depth",
+              "value": "1"
+            },
+            {
+              "name": "max_pages_per_domain",
+              "value": "10"
+            },
+            {
+              "name": "contact_bias",
+              "value": "true"
+            },
+            {
+              "name": "allow_patterns",
+              "value": "contact,about"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        16,
+        -144
+      ],
+      "id": "fdf6ab6d-648a-4365-8e7f-4fed298984d0",
+      "name": "Local Scraper Execute"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst seen = new Map(); // key = `${email}|${domain}` -> { email, domain, page_url }\n\nfunction normalizeDomain(d, pageUrl) {\n  if (d && typeof d === 'string' && d.trim() !== '') return d.trim().toLowerCase();\n  try {\n    const h = new URL(pageUrl).hostname.toLowerCase();\n    return h.startsWith('www.') ? h.slice(4) : h;\n  } catch {\n    return '';\n  }\n}\n\nfunction considerEntry(entry) {\n  if (!entry || typeof entry !== 'object') return;\n  const pageUrl = entry.page_url || entry.page || entry.url;\n  const domain = normalizeDomain(entry.domain, pageUrl);\n  const emails = Array.isArray(entry.emails) ? entry.emails : [];\n\n  for (const raw of emails) {\n    const email = String(raw || '').trim().toLowerCase();\n    if (!email) continue;\n    const key = `${email}|${domain}`;\n    if (!seen.has(key)) {\n      seen.set(key, {\n        email,\n        domain,\n        page_url: pageUrl || '',\n      });\n    }\n  }\n}\n\nfor (const it of items) {\n  const j = it.json ?? it;\n\n  // Case 1: the item itself is a page entry\n  if (j && j.page_url && Array.isArray(j.emails)) {\n    considerEntry(j);\n    continue;\n  }\n\n  // Case 2: the item has arrays of page entries (unknown key names)\n  for (const v of Object.values(j)) {\n    if (Array.isArray(v)) {\n      for (const maybeEntry of v) {\n        if (maybeEntry && maybeEntry.page_url && Array.isArray(maybeEntry.emails)) {\n          considerEntry(maybeEntry);\n        }\n      }\n    }\n  }\n}\n\nreturn Array.from(seen.values()).map(r => ({ json: r }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -144
+      ],
+      "id": "3a440af7-ddcd-4052-9275-727caaac0025",
+      "name": "Adapt to Google Sheets"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1eDR6FuhepnJIlgUE1iaYdbX8S5kREhc_rnrgqP4OB48",
+          "mode": "list",
+          "cachedResultName": "ScrapingData",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1eDR6FuhepnJIlgUE1iaYdbX8S5kREhc_rnrgqP4OB48/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Scraped",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1eDR6FuhepnJIlgUE1iaYdbX8S5kREhc_rnrgqP4OB48/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "url": "{{$json.url}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "domain",
+              "displayName": "domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "page_url",
+              "displayName": "page_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        448,
+        -144
+      ],
+      "id": "a228f5fa-2795-4688-ae46-ca98debc9c34",
+      "name": "Append row ScrapingData",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "txGcD2nemlcYYigg",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Extract Places Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Places Info": {
+      "main": [
+        [
+          {
+            "node": "Create individual Queries to scraper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create individual Queries to scraper": {
+      "main": [
+        [
+          {
+            "node": "Local Scraper Execute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Local Scraper Execute": {
+      "main": [
+        [
+          {
+            "node": "Adapt to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adapt to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Append row ScrapingData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "828061c0-9ead-4b01-a2e3-3fba881b4647",
+  "meta": {
+    "instanceId": "289f7ddf5519cdf7575cb365c0aa3aae40fd3979ae828592c8f8641fe42f235e"
+  },
+  "id": "U0BTVVBdd7M2dKWx",
+  "tags": []
+}

@@ -1,0 +1,195 @@
+{
+  "name": "GetPlaces",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Execute Google Places search",
+        "formDescription": "This executes the google place over the parameters\n\nuse the following URL for reference\n\nhttps://developers.google.com/maps/documentation/places/web-service/legacy/supported_types#table1",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "BUSINESS_TYPE",
+              "placeholder": "jewelry_store",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "CITY_NAME",
+              "placeholder": "Barcelona",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "PAGE_SIZE",
+              "fieldType": "number",
+              "placeholder": "3",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b8699b8f-d439-4455-8489-7153cb227bab",
+      "name": "On form submission",
+      "webhookId": "4e48bd59-6943-4a30-a4b2-18ad398541db"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1WGpESINrpZU0JRFGC1ymI3K-zsuqV77kFLB3yI-Xm5Y",
+          "mode": "list",
+          "cachedResultName": "GooglePlacesSearch",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1WGpESINrpZU0JRFGC1ymI3K-zsuqV77kFLB3yI-Xm5Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Hoja 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1WGpESINrpZU0JRFGC1ymI3K-zsuqV77kFLB3yI-Xm5Y/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "places",
+              "displayName": "places",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nextPageToken",
+              "displayName": "nextPageToken",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        720,
+        0
+      ],
+      "id": "2f9ce1f0-c24f-4091-bbc4-9ce52fc1257d",
+      "name": "Insert in GooglePlacesSearch",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "txGcD2nemlcYYigg",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Input: the JSON from Places searchText (usually { places: [...], nextPageToken })\n// Output: one item per place with fields ready for Google Sheets Append\n\nconst data = $json;\n\n// Get the array of places whether it's under `places` or already an array\nconst places = Array.isArray(data) ? data\n              : Array.isArray(data.places) ? data.places\n              : [];\n\nconst out = places.map(p => {\n  const name = p?.displayName?.text ?? \"\";\n  const rating = typeof p?.rating === \"number\" ? p.rating : \"\";\n  const address = p?.formattedAddress ?? \"\";\n  const maps = p?.googleMapsUri ?? \"\";\n  const website = p?.websiteUri ?? p?.website ?? \"\"; // sometimes `website` appears in details\n  const types = Array.isArray(p?.types) ? p.types.join(\", \") : \"\";\n  const placeId = p?.id ?? \"\";\n\n  return {\n    json: {\n      Name: name,\n      Rating: rating,\n      Address: address,\n      GoogleMapsUri: maps,\n      WebsiteUri: website,\n      PlaceId: placeId,\n      Types: types,\n    }\n  };\n});\n\n// Optional: keep the page token in the first item for chaining pagination\n// if (data.nextPageToken && out.length) {\n//   out[0].json.NextPageToken = data.nextPageToken;\n// }\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "511c763c-0bd8-4448-ab2d-0e9ea3c49031",
+      "name": "Filter Fields"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://places.googleapis.com/v1/places:searchText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Goog-Api-Key",
+              "value": "AIzaSyBeb39kEFoh35M53RQsFQHC6GgSwL2swfE"
+            },
+            {
+              "name": "X-Goog-FieldMask",
+              "value": "places.id,places.displayName,places.formattedAddress,places.types,places.location,places.googleMapsUri,places.rating,places.userRatingCount,places.websiteUri,nextPageToken"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"textQuery\": \"{{$json.BUSINESS_TYPE}} in {{$json.CITY_NAME}}\",\n  \"includedType\": \"{{$json.BUSINESS_TYPE}}\",\n  \"pageSize\": \"{{Math.min(20, Math.max(1, Number($json.PAGE_SIZE) || 10))}}\",\n  \"rankPreference\": \"RELEVANCE\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "488e39de-ee13-489c-8c91-2f3b63bf83e1",
+      "name": "Google Places API"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Google Places API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Fields": {
+      "main": [
+        [
+          {
+            "node": "Insert in GooglePlacesSearch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Places API": {
+      "main": [
+        [
+          {
+            "node": "Filter Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "49561908-6fde-4ff0-9300-b9a2e5507586",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "289f7ddf5519cdf7575cb365c0aa3aae40fd3979ae828592c8f8641fe42f235e"
+  },
+  "id": "iIdO2f3ScHNANuL7",
+  "tags": []
+}
