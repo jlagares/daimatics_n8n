@@ -1,4 +1,4 @@
-"# Email Scraper API
+# Email Scraper API
 
 A powerful email scraping service built with Scrapy and FastAPI that extracts email addresses from websites.
 
@@ -687,3 +687,4 @@ For issues and questions:
 - Create an issue on GitHub
 - Check the [Scrapy documentation](https://docs.scrapy.org/)
 - Check the [FastAPI documentation](https://fastapi.tiangolo.com/)" 
+
