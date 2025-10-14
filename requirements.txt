@@ -1,0 +1,28 @@
+# Core Scrapy dependencies
+scrapy>=2.11.0
+twisted>=22.10.0
+w3lib>=2.1.0
+parsel>=1.8.0
+itemadapter>=0.7.0
+itemloaders>=1.0.0
+jmespath>=1.0.0
+
+# HTTP and requests
+requests>=2.31.0
+urllib3>=2.0.0
+
+# FastAPI dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+pydantic>=2.5.0
+
+# Data processing
+lxml>=4.9.0
+cssselect>=1.2.0
+
+# Async support
+aiofiles>=23.2.0
+
+# Development and debugging
+ipython>=8.0.0
