@@ -1,0 +1,552 @@
+{
+  "name": "Daimatics Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "={{ $json.system_prompt }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        224,
+        16
+      ],
+      "id": "d015f4e4-6ab1-4bb5-a99f-f239bfc76fdd",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        176,
+        192
+      ],
+      "id": "cc4ab887-c6df-42d5-9b7b-9b152d7a8af9",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "gLr94a1Q2ww8sipq",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "use this database to look for data about a company",
+        "tableName": "={{ $json.database_name }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePGVector",
+      "typeVersion": 1.3,
+      "position": [
+        416,
+        272
+      ],
+      "id": "1ba8b94d-f000-4ec8-aec6-c2a95ae9d4cf",
+      "name": "Postgres PGVector Store",
+      "credentials": {
+        "postgres": {
+          "id": "a39zylCis3kNQMSm",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        416,
+        400
+      ],
+      "id": "483e0d63-3205-492c-a301-2c781f13b54c",
+      "name": "Embeddings OpenAI",
+      "credentials": {
+        "openAiApi": {
+          "id": "gLr94a1Q2ww8sipq",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        288,
+        272
+      ],
+      "id": "c85a8bcb-1a7c-4bdc-b221-3e4ea726b547",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"company\": \"Daimatics\",\n  \"database_name\": \"rag.docs\",\n  \"url\":\"https://daimatics.agency/\",\n  \"contact_page\": \"https://daimatics.agency/contacte/\",\n  \"email\":\"hola@daimatics.agency\",\n  \"Phone/Whatsapp\": \"+376 81 91 81\",\n  \"preferred_language\": \"Spanish\"\n}\n",
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -112,
+        16
+      ],
+      "id": "d96e33a4-c217-47d8-8d57-552abf60b981",
+      "name": "Company and DB Setup"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"system_prompt\": \"You are a customer-support assistant for . You must only answer about {{ $json.company }}’s products, services, policies, and content found in the provided knowledge base. You must interact with the user in {{ $json.preferred_language }} Language.If asked about anything else, politely decline and steer back to {{ $json.company }}. Prioritize helpfulness, clarity, and accuracy. Never invent facts; if uncertain, say so and offer to connect the user to our team.\\n\\nKnowledge\\nYou have access to a vector search over `corpus.jsonl` built from {{ $json.url }}. Use it for every answer. Cite the page title and section when relevant.\\n\\nGoals\\n1) Resolve the user’s question using authoritative passages.\\n2) If the user shows purchase intent or needs human help, offer a connection:\\n   - Email: {{ $json.email }}\\n   - Phone/WhatsApp: {{ $json['Phone/Whatsapp'] }}\\n   - Meeting link: {{ $json.contact_page }}\\n3) Collect minimal context to route the lead (name, company, email/phone, brief need) with explicit consent.\\n\\nPolicies\\n- Scope: If the question is unrelated to {{ $json.company }}, reply: 'I’m specialized in {{ $json.company }}. Would you like help with our products or services?'\\n- Style: Friendly, concise, no hard sell; surface relevant CTAs.\\n\\nGmail Lead-Draft Tool (when user shows intent)\\n- Purpose: prepare (not send) a lead email via the Gmail tool and show the draft to the user for confirmation.\\n- Always ask: 'With your consent, I can prepare an email to our team.' Proceed only after explicit consent.\\n- Required draft fields:\\n  to: recipient email (default {{ $json.email }} unless the user specifies another)\\n  \\n  subject: use the json key mail_subject as output\\n  body: use mail_body json key in the output.\\n- Body template (fill placeholders with user-provided info; omit unknown lines):\\n  'Hello {{ $json.company }} team,\\n  A customer has requested assistance.\\n  Name: {name}\\n  Company: {company}\\n  Contact: {email_or_phone}\\n  Need: {brief_need}\\n  Preferred language: {locale}\\n  Consent: The customer consented to be contacted.\\n  Thanks.'\\nYou redact the email in {{ $json.preferred_language }} Language\\nEmail Routing Outputs (for downstream step)\\n- If the user wants to receive an email or agrees to be contacted by email:\\n  - Set generate_lead_email = 'YES'.\\n  - Set user_email to the user’s provided email address; if missing, ask for it explicitly and proceed only after consent.\\n  - Set mail_subject to the intended subject (default 'request from customer' unless the user specifies another).\\n- If the user does not want email contact or declines consent:\\n  - Set generate_lead_email = 'NO'.\\n  - Leave user_email, mail_subject, and mail_body empty or unchanged.\\n\\nAnswer pattern\\n1) Short answer grounded in a retrieved quote (paraphrase, don’t copy long blocks).\\n2) Offer next step (docs link or talk to sales/support).\\n3) If user shows intent → get consent → (a) set generate_lead_email to YES/NO per rules above, (b) populate always user_email, mail_subject, mail_body when YES, (c) prepare Gmail draft with the fields above → show preview → ask to confirm -> set generate_lead_email to YES, never before\"\n}",
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        48,
+        16
+      ],
+      "id": "d0adc3a9-4868-4196-97de-d899235ced60",
+      "name": "System Prompt"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.output.generate_lead_mail }}",
+                    "rightValue": "YES",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "39780fe8-015f-46a1-ab36-a90a1c40c7cf"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Lead Email"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "d06a5d62-35ab-429d-bdbb-943059d48c27",
+                    "leftValue": "={{ $json.output.generate_lead_mail }}",
+                    "rightValue": "NO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Keep Conversation"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        576,
+        16
+      ],
+      "id": "fad49cca-999a-4b33-9147-f067613ef45f",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n\t\"generate_lead_mail\": \"YES/NO\",\n\t\"agent_response\": \"Agent Text response\",\n  \"user_email\":\"user_email\",\n  \"mail_subject\": \"text mail subject\",\n  \"mail_body\": \"text body\"\n}",
+        "autoFix": true
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        688,
+        288
+      ],
+      "id": "bee1a6ce-feca-454d-8145-34531fe6b1f1",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        704,
+        464
+      ],
+      "id": "8d74bcb3-f573-46f8-82c1-ec396e995e5d",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "gLr94a1Q2ww8sipq",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.output.user_email }}",
+        "subject": "={{ $json.output.mail_subject }}",
+        "emailType": "text",
+        "message": "={{ $json.output.mail_body }}",
+        "options": {
+          "appendAttribution": false,
+          "ccList": "= {{ $('Company and DB Setup').item.json.email }}"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1152,
+        -64
+      ],
+      "id": "29f61622-7577-47e2-8657-676a3edde79e",
+      "name": "Send a message",
+      "webhookId": "b258d376-3d74-4f13-965f-f967b3c60628",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "zBBWy59b5G0hZcQa",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inputs:\n// - \"Chat sessionId\": { sessionId, action, chatInput }\n// - \"AI Agent\": { output: { agent_response, ... } } OR { output: [ { agent_response, ... } ] }\n\nconst chatItem = $('Chat').first().json || {};\nconst agentItem = $('AI Agent').first().json || {};\n\nconst rawOut = agentItem.output ?? {};\nconst agentOut = Array.isArray(rawOut) ? (rawOut[0] || {}) : rawOut;\n\nconst replyText = agentOut.agent_response || '';\n\nreturn [\n  {\n      output: String(replyText)\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        144
+      ],
+      "id": "fb81f508-dd62-4f8c-9eed-6a1138e8767c",
+      "name": "Filter for chat"
+    },
+    {
+      "parameters": {
+        "public": true,
+        "initialMessages": "Hola desde Daimatics, como puedo ayudarte?",
+        "options": {
+          "allowedOrigins": "*",
+          "allowFileUploads": false,
+          "allowedFilesMimeTypes": "*",
+          "inputPlaceholder": "Type your question..",
+          "showWelcomeScreen": true,
+          "getStarted": "Empecemos",
+          "subtitle": "24x7 ayudandote",
+          "title": "Daimatics Chat",
+          "customCss": ":root {\n  /* Colors */\n  --chat--color-primary: #e74266;\n  --chat--color-primary-shade-50: #db4061;\n  --chat--color-primary-shade-100: #cf3c5c;\n  --chat--color-secondary: #20b69e;\n  --chat--color-secondary-shade-50: #1ca08a;\n  --chat--color-white: #ffffff;\n  --chat--color-light: #f2f4f8;\n  --chat--color-light-shade-50: #e6e9f1;\n  --chat--color-light-shade-100: #c2c5cc;\n  --chat--color-medium: #d2d4d9;\n  --chat--color-dark: #101330;\n  --chat--color-disabled: #d2d4d9;\n  --chat--color-typing: #404040;\n\n  /* Base Layout */\n  --chat--spacing: 1rem;\n  --chat--border-radius: 0.25rem;\n  --chat--transition-duration: 0.15s;\n  --chat--font-family: (\n    -apple-system,\n    BlinkMacSystemFont,\n    'Segoe UI',\n    Roboto,\n    Oxygen-Sans,\n    Ubuntu,\n    Cantarell,\n    'Helvetica Neue',\n    sans-serif\n  );\n\n  /* Window Dimensions */\n  --chat--window--width: 400px;\n  --chat--window--height: 600px;\n  --chat--window--bottom: var(--chat--spacing);\n  --chat--window--right: var(--chat--spacing);\n  --chat--window--z-index: 9999;\n  --chat--window--border: 1px solid var(--chat--color-light-shade-50);\n  --chat--window--border-radius: var(--chat--border-radius);\n  --chat--window--margin-bottom: var(--chat--spacing);\n\n  /* Header Styles */\n  --chat--header-height: auto;\n  --chat--header--padding: var(--chat--spacing);\n  --chat--header--background: var(--chat--color-dark);\n  --chat--header--color: var(--chat--color-light);\n  --chat--header--border-top: none;\n  --chat--header--border-bottom: none;\n  --chat--header--border-left: none;\n  --chat--header--border-right: none;\n  --chat--heading--font-size: 2em;\n  --chat--subtitle--font-size: inherit;\n  --chat--subtitle--line-height: 1.8;\n\n  /* Message Styles */\n  --chat--message--font-size: 1rem;\n  --chat--message--padding: var(--chat--spacing);\n  --chat--message--border-radius: var(--chat--border-radius);\n  --chat--message-line-height: 1.5;\n  --chat--message--margin-bottom: calc(var(--chat--spacing) * 1);\n  --chat--message--bot--background: var(--chat--color-white);\n  --chat--message--bot--color: var(--chat--color-dark);\n  --chat--message--bot--border: none;\n  --chat--message--user--background: var(--chat--color-secondary);\n  --chat--message--user--color: var(--chat--color-white);\n  --chat--message--user--border: none;\n  --chat--message--pre--background: rgba(0, 0, 0, 0.05);\n  --chat--messages-list--padding: var(--chat--spacing);\n\n  /* Toggle Button */\n  --chat--toggle--size: 64px;\n  --chat--toggle--width: var(--chat--toggle--size);\n  --chat--toggle--height: var(--chat--toggle--size);\n  --chat--toggle--border-radius: 50%;\n  --chat--toggle--background: var(--chat--color-primary);\n  --chat--toggle--hover--background: var(--chat--color-primary-shade-50);\n  --chat--toggle--active--background: var(--chat--color-primary-shade-100);\n  --chat--toggle--color: var(--chat--color-white);\n\n  /* Input Area */\n  --chat--textarea--height: 50px;\n  --chat--textarea--max-height: 30rem;\n  --chat--input--font-size: inherit;\n  --chat--input--border: 0;\n  --chat--input--border-radius: 0;\n  --chat--input--padding: 0.8rem;\n  --chat--input--background: var(--chat--color-white);\n  --chat--input--text-color: initial;\n  --chat--input--line-height: 1.5;\n  --chat--input--placeholder--font-size: var(--chat--input--font-size);\n  --chat--input--border-active: 0;\n  --chat--input--left--panel--width: 2rem;\n\n  /* Button Styles */\n  --chat--button--color: var(--chat--color-light);\n  --chat--button--background: var(--chat--color-primary);\n  --chat--button--padding: calc(var(--chat--spacing) * 1 / 2) var(--chat--spacing);\n  --chat--button--border-radius: var(--chat--border-radius);\n  --chat--button--hover--color: var(--chat--color-light);\n  --chat--button--hover--background: var(--chat--color-primary-shade-50);\n  --chat--close--button--color-hover: var(--chat--color-primary);\n\n  /* Send and File Buttons */\n  --chat--input--send--button--background: var(--chat--color-white);\n  --chat--input--send--button--color: var(--chat--color-secondary);\n  --chat--input--send--button--background-hover: var(--chat--color-primary-shade-50);\n  --chat--input--send--button--color-hover: var(--chat--color-secondary-shade-50);\n  --chat--input--file--button--background: var(--chat--color-white);\n  --chat--input--file--button--color: var(--chat--color-secondary);\n  --chat--input--file--button--background-hover: var(--chat--input--file--button--background);\n  --chat--input--file--button--color-hover: var(--chat--color-secondary-shade-50);\n  --chat--files-spacing: 0.25rem;\n\n  /* Body and Footer */\n  --chat--body--background: var(--chat--color-light);\n  --chat--footer--background: var(--chat--color-light);\n  --chat--footer--color: var(--chat--color-dark);\n}\n\n\n/* You can override any class styles, too. Right-click inspect in Chat UI to find class to override. */\n.chat-message {\n\tmax-width: 50%;\n}\n/* Hide common n8n chat attribution elements */\n.n8n-chat-powered-by,\n.n8n-chat__powered-by,\n.n8n-chat__poweredBy,\n.chat-powered-by,\n[data-test-id=\"powered-by\"],\n[aria-label*=\"powered\"],\na[href*=\"n8n.io\"][target] {\n  display: none !important;\n  visibility: hidden !important;\n}\n\n/* Optional: tighten footer spacing if attribution lived there */\n.chat-footer:has(.n8n-chat-powered-by),\n.chat-footer:has([data-test-id=\"powered-by\"]) {\n  padding-bottom: var(--chat--spacing);\n}",
+          "responseMode": "lastNode"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -320,
+        16
+      ],
+      "id": "5ccf67b9-e05c-4156-8619-cfeffa61f56a",
+      "name": "Chat",
+      "webhookId": "b6c2b17c-a42b-493d-961a-87a2d9a07296"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inputs:\n// - \"Chat sessionId\": { sessionId, action, chatInput }\n// - \"AI Agent\": { output: { agent_response, ... } } OR { output: [ { agent_response, ... } ] }\n\nconst chatItem = $('Chat').first().json || {};\nconst agentItem = $('AI Agent').first().json || {};\n\nconst rawOut = agentItem.output ?? {};\nconst agentOut = Array.isArray(rawOut) ? (rawOut[0] || {}) : rawOut;\n\nconst replyText = agentOut.agent_response || '';\n\nreturn [\n  {\n      output: String(replyText)\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        48
+      ],
+      "id": "8120343e-ae37-4e87-8b2f-bcb13bf963ee",
+      "name": "Filter for chat1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cf237c43-8e02-460a-9ddb-d51e85484ab2",
+              "leftValue": "={{ $json.output.generate_lead_mail }}",
+              "rightValue": "YES",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "bd355969-dc5c-4d35-a775-6a547bbb3250",
+              "leftValue": "={{ $json.output.user_email }}",
+              "rightValue": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            },
+            {
+              "id": "459f7ee3-880c-4a67-a35b-45e913b97a51",
+              "leftValue": "={{ $json.output.mail_subject }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "f8709c66-6afa-44f8-8bd9-805249e92b7b",
+              "leftValue": "={{ $json.output.mail_body }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        848,
+        -80
+      ],
+      "id": "44e3e407-200b-4acf-a1da-49da35d17e49",
+      "name": "Email Ready"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres PGVector Store": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Postgres PGVector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Company and DB Setup": {
+      "main": [
+        [
+          {
+            "node": "System Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "System Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Structured Output Parser",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Filter for chat1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email Ready",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Filter for chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Filter for chat1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat": {
+      "main": [
+        [
+          {
+            "node": "Company and DB Setup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Ready": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Filter for chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "87aa9091-48a4-40d7-bc34-a737fc6ee26f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "289f7ddf5519cdf7575cb365c0aa3aae40fd3979ae828592c8f8641fe42f235e"
+  },
+  "id": "z7zCl61Ce3RcycUu",
+  "tags": []
+}
