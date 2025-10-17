@@ -1,0 +1,6 @@
+ # SELENIUM
+## Launch chrome with selenium enabled from powershell
+$env:CHROMEDRIVER_PATH = 'C:\Users\jlagares\.wdm\drivers\chromedriver\win64\140.0.7339.207\chromedriver-win32\chromedriver.exe'
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" `
+  --remote-debugging-port=9222 `
+  --user-data-dir="C:\tmp\selenium-profile"
