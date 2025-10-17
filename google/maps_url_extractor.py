@@ -94,6 +94,88 @@ class MapsURLExtractor:
         actual_time = max(0.1, actual_time)
         time.sleep(actual_time)
 
+    def _clean_text(self, text: str) -> str:
+        """
+        Clean text from encoding issues and unwanted characters.
+        
+        Args:
+            text: Raw text that may have encoding issues
+            
+        Returns:
+            Cleaned text with proper UTF-8 encoding
+        """
+        if not text:
+            return ""
+        
+        try:
+            cleaned_text = text
+            
+            # Try to fix double encoding by attempting different decode/encode cycles
+            try:
+                # Check if this looks like UTF-8 encoded as latin-1 (common issue)
+                if 'Ã' in cleaned_text or 'â€' in cleaned_text or 'î' in cleaned_text:
+                    # Try to decode as latin-1 and encode as utf-8
+                    temp = cleaned_text.encode('latin-1').decode('utf-8')
+                    cleaned_text = temp
+            except (UnicodeDecodeError, UnicodeEncodeError):
+                pass  # Keep the current text if conversion fails
+            
+            # Common problematic patterns and their fixes
+            replacements = [
+                ('Ã¡', 'á'), ('Ã©', 'é'), ('Ã­', 'í'), ('Ã³', 'ó'), ('Ãº', 'ú'),
+                ('Ã±', 'ñ'), ('Ã§', 'ç'), ('Ã ', 'à'), ('Ã¨', 'è'), ('Ã¬', 'ì'),
+                ('Ã²', 'ò'), ('Ã¹', 'ù'), ('Ã¤', 'ä'), ('Ã«', 'ë'), ('Ã¯', 'ï'),
+                ('Ã¶', 'ö'), ('Ã¼', 'ü'), ('îƒˆ', ''), ('â€™', "'"), ('â€œ', '"'),
+                ('â€', '"'), ('â€¢', '•'), ('â‚¬', '€'), ('Â°', '°'), ('Â®', '®'),
+                ('Â©', '©'), ('Â»', '»'), ('Â«', '«'), ('â€"', '–'), ('â€"', '—'),
+                # Remove non-breaking spaces and other invisible characters
+                ('\xa0', ' '), ('\u200b', ''), ('\u200c', ''), ('\u200d', ''), ('\ufeff', ''),
+                # Clean up common weird sequences
+                ('  ', ' '), ('\n', ' '), ('\r', ' '), ('\t', ' ')
+            ]
+            
+            # Apply all replacements
+            for old, new in replacements:
+                cleaned_text = cleaned_text.replace(old, new)
+            
+            # Final cleanup - normalize whitespace
+            cleaned_text = ' '.join(cleaned_text.split())
+            
+            return cleaned_text.strip()
+            
+        except Exception as e:
+            print(f"⚠️  Error cleaning text '{text[:50]}...': {e}")
+            # Return original text if cleaning fails
+            return text.strip() if text else ""
+
+    def _find_gcid_context(self, page_source: str, gcid_value: str) -> str:
+        """
+        Find the context around a GCID in the page source for debugging.
+        
+        Args:
+            page_source: The full HTML page source
+            gcid_value: The GCID value to search for (without 'gcid:' prefix)
+            
+        Returns:
+            A snippet of text around the GCID, or empty string if not found
+        """
+        try:
+            # Look for the gcid in the page source
+            search_patterns = [f'gcid:{gcid_value}', f'gcid_{gcid_value}', f'"{gcid_value}"']
+            
+            for pattern in search_patterns:
+                index = page_source.find(pattern)
+                if index != -1:
+                    # Get context around the gcid (50 characters before and after)
+                    start = max(0, index - 50)
+                    end = min(len(page_source), index + len(pattern) + 50)
+                    context = page_source[start:end].replace('\n', ' ').replace('\r', ' ')
+                    return context.strip()
+            
+            return ""
+        except Exception:
+            return ""
+
     def _extract_place_id(self, url: str) -> str:
         """
         Extract Place ID from Google Maps URL.
@@ -136,8 +218,9 @@ class MapsURLExtractor:
             place_id = self._extract_place_id(url_info.get('url', ''))
             
             # Prepare the row data with new column structure
+            name = url_info.get('content', {}).get('name', '') or url_info.get('text', '')
             row_data = {
-                'Name': url_info.get('content', {}).get('name', '') or url_info.get('text', ''),
+                'Name': self._clean_text(name) if name else '',
                 'Rating': url_info.get('content', {}).get('rating', ''),
                 'Address': url_info.get('content', {}).get('address', ''),
                 'GoogleMapsUri': url_info.get('url', ''),
@@ -410,7 +493,7 @@ class MapsURLExtractor:
                 for selector in name_selectors:
                     try:
                         name_element = self.driver.find_element(By.CSS_SELECTOR, selector)
-                        content["name"] = name_element.text.strip()
+                        content["name"] = self._clean_text(name_element.text.strip())
                         break
                     except NoSuchElementException:
                         continue
@@ -436,7 +519,7 @@ class MapsURLExtractor:
                         address_element = self.driver.find_element(By.CSS_SELECTOR, selector)
                         address_text = address_element.text.strip() or address_element.get_attribute("aria-label") or ""
                         if address_text:
-                            content["address"] = address_text
+                            content["address"] = self._clean_text(address_text)
                             address_found = True
                             break
                     except NoSuchElementException:
@@ -460,7 +543,7 @@ class MapsURLExtractor:
                                 clean_address = match.strip()
                                 # Validate it looks like an address (has some typical components)
                                 if any(keyword in clean_address.lower() for keyword in ['plaça', 'plaza', 'calle', 'carrer', 'avenida', 'av.', 'c/', 'street', 'st.']):
-                                    content["address"] = clean_address
+                                    content["address"] = self._clean_text(clean_address)
                                     address_found = True
                                     print(f"📍 [{index}] Found address via regex: {clean_address}")
                                     break
@@ -493,7 +576,7 @@ class MapsURLExtractor:
                         phone_element = self.driver.find_element(By.CSS_SELECTOR, selector)
                         phone_text = phone_element.text.strip() or phone_element.get_attribute("aria-label") or ""
                         if phone_text and any(char.isdigit() for char in phone_text):
-                            content["phone"] = phone_text
+                            content["phone"] = self._clean_text(phone_text)
                             phone_found = True
                             break
                     except NoSuchElementException:
@@ -522,7 +605,7 @@ class MapsURLExtractor:
                                 print(f"   └─ Raw match: '{clean_phone}'")
                                 # Check if it looks like a phone number (has digits and reasonable length)
                                 if re.search(r'\d{6,}', clean_phone.replace(' ', '').replace('-', '')):
-                                    content["phone"] = clean_phone
+                                    content["phone"] = self._clean_text(clean_phone)
                                     phone_found = True
                                     print(f"📞 [{index}] Found phone via regex pattern {i}: {clean_phone}")
                                     break
@@ -544,7 +627,7 @@ class MapsURLExtractor:
                 for selector in rating_selectors:
                     try:
                         rating_element = self.driver.find_element(By.CSS_SELECTOR, selector)
-                        content["rating"] = rating_element.text.strip()
+                        content["rating"] = self._clean_text(rating_element.text.strip())
                         break
                     except NoSuchElementException:
                         continue
@@ -560,7 +643,8 @@ class MapsURLExtractor:
                 for selector in website_selectors:
                     try:
                         website_element = self.driver.find_element(By.CSS_SELECTOR, selector)
-                        content["website"] = website_element.get_attribute("href") or website_element.text.strip()
+                        website_text = website_element.get_attribute("href") or website_element.text.strip()
+                        content["website"] = self._clean_text(website_text) if website_text else ""
                         break
                     except NoSuchElementException:
                         continue
@@ -585,7 +669,7 @@ class MapsURLExtractor:
                         hours_element = self.driver.find_element(By.CSS_SELECTOR, selector)
                         hours_text = hours_element.text.strip() or hours_element.get_attribute("aria-label") or ""
                         if hours_text:
-                            content["hours"] = hours_text
+                            content["hours"] = self._clean_text(hours_text)
                             hours_found = True
                             break
                     except NoSuchElementException:
@@ -612,7 +696,7 @@ class MapsURLExtractor:
                                 clean_hours = match.strip()
                                 # Validate it looks like hours information
                                 if any(keyword in clean_hours.lower() for keyword in ['abierto', 'cerrado', 'open', 'closed', ':', 'am', 'pm', 'horario', 'hours']):
-                                    content["hours"] = clean_hours
+                                    content["hours"] = self._clean_text(clean_hours)
                                     hours_found = True
                                     print(f"🕐 [{index}] Found hours via regex: {clean_hours}")
                                     break
@@ -646,7 +730,7 @@ class MapsURLExtractor:
                         for element in category_elements:
                             category_text = element.text.strip()
                             if category_text and category_text not in all_types:
-                                all_types.append(category_text)
+                                all_types.append(self._clean_text(category_text))
                     except NoSuchElementException:
                         continue
                 
@@ -660,23 +744,101 @@ class MapsURLExtractor:
                         page_source = self.driver.page_source
                         
                         # Look for category/type patterns in the HTML
-                        type_patterns = [
+                        # First, specifically search for gcid patterns with more precision
+                        gcid_patterns = [
+                            r'"gcid:([a-zA-Z_]+)"',  # Most specific: quoted gcid
+                            r'\bgcid:([a-zA-Z_]+)\b',  # Word boundary gcid
+                            r'data-gcid="([^"]*)"',  # Data attribute gcid
+                            r'gcid:([a-zA-Z_]+)',  # Basic gcid pattern
+                            r'"gcid_([a-zA-Z_]+)"',  # Alternative gcid format
+                            r'category_id["\']:[\s]*["\']gcid:([a-zA-Z_]+)["\']',  # JSON category_id with gcid
+                        ]
+                        
+                        # Secondary patterns for fallback
+                        fallback_patterns = [
                             r'"([^"]*(?:Restaurant|Bar|Cafe|Hotel|Shop|Store|Service|Centro|Tienda|Restaurante|Bar|Cafetería)[^"]*)"',
                             r'\"category\":\s*\"([^\"]+)\"',
                             r'\"types\":\s*\[([^\]]+)\]'
                         ]
                         
                         found_types = set()
-                        for pattern in type_patterns:
+                        gcid_found = False
+                        
+                        # First, try to find gcid patterns
+                        print(f"🔍 [{index}] Searching for GCID patterns...")
+                        for i, pattern in enumerate(gcid_patterns):
                             matches = re.findall(pattern, page_source, re.IGNORECASE)
+                            print(f"   Pattern {i+1} ({pattern[:30]}...): {len(matches)} matches")
                             for match in matches:
-                                clean_type = match.strip().strip('"')
-                                if len(clean_type) > 2 and len(clean_type) < 50:  # Reasonable length for business type
-                                    found_types.add(clean_type)
+                                clean_gcid = match.strip().strip('"')
+                                if clean_gcid and len(clean_gcid) > 2:
+                                    print(f"   ✅ Found GCID: '{clean_gcid}'")
+                                    # Convert gcid format to readable format
+                                    formatted_type = clean_gcid.replace('_', ' ').title()
+                                    found_types.add(f"gcid:{clean_gcid}")  # Keep original gcid
+                                    found_types.add(formatted_type)  # Add readable version
+                                    gcid_found = True
+                        
+                        # Only use fallback patterns if no gcid was found
+                        if not gcid_found:
+                            print(f"🔍 [{index}] No GCID found, trying fallback patterns...")
+                            for i, pattern in enumerate(fallback_patterns):
+                                matches = re.findall(pattern, page_source, re.IGNORECASE)
+                                print(f"   Fallback pattern {i+1}: {len(matches)} matches")
+                                for match in matches:
+                                    clean_type = match.strip().strip('"')
+                                    if len(clean_type) > 2 and len(clean_type) < 50:
+                                        # Filter out common non-category text
+                                        if not any(exclude in clean_type.lower() for exclude in ['añadir', 'etiqueta', 'add', 'tag', 'label']):
+                                            found_types.add(clean_type)
+                                            print(f"   ✅ Added fallback type: '{clean_type}'")
+                        
+                        # Additional comprehensive search for gcid in various formats
+                        if not gcid_found:
+                            print(f"🔍 [{index}] Trying comprehensive gcid search...")
+                            # Search for gcid in different contexts and formats
+                            comprehensive_patterns = [
+                                r'category[^:]*:\s*["\']?gcid:([a-zA-Z_]+)',
+                                r'type[^:]*:\s*["\']?gcid:([a-zA-Z_]+)',
+                                r'business_type[^:]*:\s*["\']?gcid:([a-zA-Z_]+)',
+                                r'place_type[^:]*:\s*["\']?gcid:([a-zA-Z_]+)',
+                                r'\["gcid:([a-zA-Z_]+)"\]',
+                                r'gcid=([a-zA-Z_]+)',
+                                r'cid["\s]*:["\s]*gcid:([a-zA-Z_]+)',
+                            ]
+                            
+                            for pattern in comprehensive_patterns:
+                                matches = re.findall(pattern, page_source, re.IGNORECASE)
+                                for match in matches:
+                                    clean_gcid = match.strip()
+                                    if clean_gcid and len(clean_gcid) > 2:
+                                        print(f"   ✅ Found comprehensive GCID: '{clean_gcid}'")
+                                        formatted_type = clean_gcid.replace('_', ' ').title()
+                                        found_types.add(f"gcid:{clean_gcid}")
+                                        found_types.add(formatted_type)
+                                        gcid_found = True
                         
                         if found_types:
-                            content["category"] = " | ".join(list(found_types)[:5])  # Limit to 5 types
-                            print(f"🏷️  [{index}] Found types via regex: {content['category']}")
+                            # Prioritize gcid types first, then others
+                            gcid_types = [t for t in found_types if t.startswith('gcid:')]
+                            other_types = [t for t in found_types if not t.startswith('gcid:')]
+                            
+                            # Combine with gcid types first
+                            all_found_types = gcid_types + other_types
+                            content["category"] = " | ".join(all_found_types[:5])  # Limit to 5 types
+                            
+                            if gcid_types:
+                                print(f"🏷️  [{index}] Found gcid types: {', '.join(gcid_types)}")
+                                # Also save a sample of the page source around gcid for debugging
+                                for gcid_type in gcid_types:
+                                    gcid_value = gcid_type.replace('gcid:', '')
+                                    gcid_context = self._find_gcid_context(page_source, gcid_value)
+                                    if gcid_context:
+                                        print(f"   📄 Context: ...{gcid_context}...")
+                            
+                            print(f"🏷️  [{index}] All found types: {content['category']}")
+                        else:
+                            print(f"⚠️  [{index}] No business types found via regex")
                                 
                     except Exception as regex_error:
                         print(f"⚠️  [{index}] Regex types search failed: {regex_error}")
